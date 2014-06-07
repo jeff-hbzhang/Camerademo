@@ -1,0 +1,33 @@
+{
+  "project": {
+    "projectSettingsVersion": "1.0",
+    "creationData": {
+      "type": "Demo",
+      "src": "http://edge-intel.s3.amazonaws.com/samples/production/sample-imagecapture/sample.zip",
+      "projectGuid": "84774996-f8a4-4bb2-9856-ce8c2c64e8e9",
+      "lastModifiedDate": 1401991395379,
+      "creationDate": 1401991395294
+    },
+    "sourceDirectory": "",
+    "startFile": "index.html",
+    "projectFiles": {},
+    "projectDirectories": {},
+    "libraries": [
+      {
+        "name": "Cordova",
+        "version": "2.9.0",
+        "data": {
+          "default": true
+        }
+      },
+      {
+        "name": "intelXDK",
+        "version": "4.0.0",
+        "data": {
+          "default": true
+        }
+      }
+    ],
+    "serviceMethods": []
+  }
+}
