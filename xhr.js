@@ -1,130 +1,225 @@
-define([
-	"../core",
-	"../var/support",
-	"../ajax"
-], function( jQuery, support ) {
+/* xhr.js 
+ * This overrides the XMLHTTPRequest object to allow cross domain ajax requests
+ */
+(function () {
+    window.addEventListener("appMobi.device.remote.data", getRemoteExtCB, true);
+    var ajaxCallbacks = [];
 
-jQuery.ajaxSettings.xhr = function() {
-	try {
-		return new XMLHttpRequest();
-	} catch( e ) {}
-};
+    function getRemoteExtCB(obj) {
+        if (ajaxCallbacks[obj.id]) {
+            ajaxCallbacks[obj.id](obj);
+        }
+    }
 
-var xhrId = 0,
-	xhrCallbacks = {},
-	xhrSuccessStatus = {
-		// file protocol always yields status code 0, assume 200
-		0: 200,
-		// Support: IE9
-		// #1450: sometimes IE returns 1223 when it should be 204
-		1223: 204
-	},
-	xhrSupported = jQuery.ajaxSettings.xhr();
+    XMLHttpRequest_Native = XMLHttpRequest;
+    XMLHttpRequest.Extension = new Object;
+	
+	var counter = 0;
+    XMLHttpRequest.Extension.addObject = function (object) {
+        uniqueId = "xhrid_"+counter++;
+        object.uniqueId = uniqueId;
+        this[uniqueId] = object;
+        return uniqueId;
+    }
 
-// Support: IE9
-// Open requests must be manually aborted on unload (#5280)
-if ( window.ActiveXObject ) {
-	jQuery( window ).on( "unload", function() {
-		for ( var key in xhrCallbacks ) {
-			xhrCallbacks[ key ]();
+    XMLHttpRequest.Extension.sendXMLHTTP = function (data) {
+        var myparams = new AppMobi.Device.RemoteDataParameters();
+        for (var j in data.headers) {
+            myparams.addHeader(j, data.headers[j]);
+        }
+
+        myparams.url = data.requestData.URL;
+        myparams.id = data.uniqueId;
+        myparams.method = data.requestData.method
+        myparams.body = data.body;
+		try{
+		if(typeof myparams.body=="object"){
+		    myparams.body=JSON.stringify(myparams.body);
 		}
-	});
-}
+        
+        ajaxCallbacks[myparams.id] = this.handleResponseData;
+        AppMobi.device.getRemoteDataExt(myparams);
+		}
+		catch(e){}
+    }
 
-support.cors = !!xhrSupported && ( "withCredentials" in xhrSupported );
-support.ajax = xhrSupported = !!xhrSupported;
+    XMLHttpRequest.Extension.handleResponseData = function (object) {
 
-jQuery.ajaxTransport(function( options ) {
-	var callback;
+        var XMLObj = XMLHttpRequest.Extension[object.id];
+        //EMULATED "HEADERS RECEIVED" CHANGES
+        var newHeaders = [];
+	var lcHeaders = [];
+	if(object.success == false)
+	{
+		XMLObj.response = null;
+		XMLObj.status = null;
+		XMLObj.responseText = null;
+		XMLObj.responseXML = null;
+		XMLObj.readyState = XMLObj.DONE;
 
-	// Cross domain only allowed if supported through XMLHttpRequest
-	if ( support.cors || xhrSupported && !options.crossDomain ) {
-		return {
-			send: function( headers, complete ) {
-				var i,
-					xhr = options.xhr(),
-					id = ++xhrId;
-
-				xhr.open( options.type, options.url, options.async, options.username, options.password );
-
-				// Apply custom fields if provided
-				if ( options.xhrFields ) {
-					for ( i in options.xhrFields ) {
-						xhr[ i ] = options.xhrFields[ i ];
-					}
-				}
-
-				// Override mime type if needed
-				if ( options.mimeType && xhr.overrideMimeType ) {
-					xhr.overrideMimeType( options.mimeType );
-				}
-
-				// X-Requested-With header
-				// For cross-domain requests, seeing as conditions for a preflight are
-				// akin to a jigsaw puzzle, we simply never set it to be sure.
-				// (it can always be set on a per-request basis or even using ajaxSetup)
-				// For same-domain requests, won't change header if already provided.
-				if ( !options.crossDomain && !headers["X-Requested-With"] ) {
-					headers["X-Requested-With"] = "XMLHttpRequest";
-				}
-
-				// Set headers
-				for ( i in headers ) {
-					xhr.setRequestHeader( i, headers[ i ] );
-				}
-
-				// Callback
-				callback = function( type ) {
-					return function() {
-						if ( callback ) {
-							delete xhrCallbacks[ id ];
-							callback = xhr.onload = xhr.onerror = null;
-
-							if ( type === "abort" ) {
-								xhr.abort();
-							} else if ( type === "error" ) {
-								complete(
-									// file: protocol always yields status 0; see #8605, #14207
-									xhr.status,
-									xhr.statusText
-								);
-							} else {
-								complete(
-									xhrSuccessStatus[ xhr.status ] || xhr.status,
-									xhr.statusText,
-									// Support: IE9
-									// Accessing binary-data responseText throws an exception
-									// (#11426)
-									typeof xhr.responseText === "string" ? {
-										text: xhr.responseText
-									} : undefined,
-									xhr.getAllResponseHeaders()
-								);
-							}
-						}
-					};
-				};
-
-				// Listen to events
-				xhr.onload = callback();
-				xhr.onerror = callback("error");
-
-				// Create the abort callback
-				callback = xhrCallbacks[ id ] = callback("abort");
-
-				// Do send the request
-				// This may raise an exception which is actually
-				// handled in jQuery.ajax (so no try/catch here)
-				xhr.send( options.hasContent && options.data || null );
-			},
-
-			abort: function() {
-				if ( callback ) {
-					callback();
-				}
+		if (typeof XMLObj.onerror == 'function') XMLObj.onerror();
+		if (typeof XMLObj.onreadystatechange == 'function') XMLObj.onreadystatechange();		
+	   }
+	   else
+	   {
+        for (var j in object.extras.headers) {
+			if(j.toLowerCase()=="set-cookie" || j.toLowerCase()=="set-cookie2") {
+				continue;
 			}
-		};
-	}
-});
+            lcHeaders[j.toLowerCase()] = object.extras.headers[j]; //jQuery looks for lowercase
+            newHeaders[j] = object.extras.headers[j];
+        }
+	XMLObj.responseData.headers = newHeaders;
+	XMLObj.responseData.lcheaders = lcHeaders;
+        XMLObj.readyState = XMLObj.HEADERS_RECEIVED;
+        if (typeof XMLObj.onreadystatechange == 'function') XMLObj.onreadystatechange();
 
-});
+        XMLObj.readyState = XMLObj.LOADING;
+        if (typeof XMLObj.onreadystatechange == 'function') XMLObj.onreadystatechange();
+
+        XMLObj.response = object.response;
+        XMLObj.status = object.extras.status;
+        XMLObj.responseText = object.response;
+        XMLObj.responseXML = object.response;
+        XMLObj.readyState = XMLObj.DONE;
+
+        if (typeof XMLObj.onreadystatechange == 'function') XMLObj.onreadystatechange();
+			if (typeof XMLObj.onloadstart == 'function') XMLObj.onloadstart();
+			if (typeof XMLObj.onload == 'function') XMLObj.onload();
+	   }
+    }
+
+
+    // XMLHTTP REDEFINE
+    //=======================================================================================================================
+    //DEFINE "CONSTANTS" FOR CONSTRUCTOR
+    XMLHttpRequest.UNSENT = 0; //const
+    XMLHttpRequest.OPENED = 1; //const
+    XMLHttpRequest.HEADERS_RECEIVED = 2; //const
+    XMLHttpRequest.LOADING = 3; //const
+    XMLHttpRequest.DONE = 4; //const
+
+    //DEFINE "CONSTANTS" PROTOTYPE
+    XMLHttpRequest.prototype.UNSENT = 0; //const
+    XMLHttpRequest.prototype.OPENED = 1; //const
+    XMLHttpRequest.prototype.HEADERS_RECEIVED = 2; //const
+    XMLHttpRequest.prototype.LOADING = 3; //const
+    XMLHttpRequest.prototype.DONE = 4; //const
+    //XMLHttpRequest = {readyState:0 };
+    XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.readyState = 0;
+    XMLHttpRequest.prototype.onreadystatechange;
+    XMLHttpRequest.prototype.headers = {};
+    XMLHttpRequest.prototype.body = "";
+
+
+
+    XMLHttpRequest.prototype.requestData = {
+        'method': null,
+        'URL': null,
+        'asynchronous': true,
+        'username': null,
+        'password': null,
+        'headers': null
+    };
+    XMLHttpRequest.prototype.responseData = {
+        'headers': null
+    };
+
+
+    XMLHttpRequest.prototype.abort = function abort() {throw(new Error("abort() is not implemented in the AppMobi XMLHtppRequest object at this time."));};
+    XMLHttpRequest.prototype.addEventListener = function addEventListener(eventType, listener, useCapture) {throw(new Error("addEventListener() is not implemented in the AppMobi XMLHtppRequest object at this time."));};
+    XMLHttpRequest.prototype.constructor = function XMLHttpRequest() {};
+    XMLHttpRequest.prototype.dispatchEvent = function dispatchEvent() {throw(new Error("dispatchEvent() is not implemented in the AppMobi XMLHtppRequest object at this time."));};
+
+    XMLHttpRequest.prototype.getAllResponseHeaders = function getAllResponseHeaders() {
+		if (this.readyState == this.OPENED || this.readyState == this.UNSENT || this.responseData.headers == null) {
+			return "";
+		} else {
+			var allHeaders = "";
+			for(var header in this.responseData.headers) {
+				if(header.toLowerCase()=="set-cookie" || header.toLowerCase()=="set-cookie2") {
+					continue;
+				}
+				if(allHeaders != "") {
+					allHeaders += "\u000d\u000a";//is this the right separator?
+				}
+				allHeaders += (header + ': ' + this.responseData.headers[header]);
+			}
+			return allHeaders;
+        }
+    };
+
+    XMLHttpRequest.prototype.getResponseHeader = function getResponseHeader(header) {
+		 if(header.toLowerCase()=="set-cookie" || header.toLowerCase()=="set-cookie2") {
+			return "";
+		 }
+        return this.responseData.headers && this.responseData.headers[header] ? this.responseData.headers[header] :
+			this.responseData.lcheaders && this.responseData.lcheaders[header] ? this.responseData.lcheaders[header] : "";
+    };
+
+    XMLHttpRequest.prototype.open = function (method, url, async, user, password) {
+        //supported methods: CONNECT, DELETE, GET, HEAD, OPTIONS, POST, PUT, TRACE, or TRACK
+		/*    Empty the list of author request headers.
+		Set the request method to method.
+		Set the request URL to url.
+		Set the request username to temp user.
+		Set the request password to temp password.
+		Set the asynchronous flag to the value of async.
+		*/
+        this.requestData.method = method;
+        this.requestData.URL = url;
+        this.requestData.asynchronous = async;
+        this.requestData.user = user;
+        this.requestData.password = password;
+        this.readyState = this.OPENED;
+        if (typeof this.onreadystatechange == 'function') this.onreadystatechange();
+
+    }
+
+    XMLHttpRequest.prototype.overrideMimeType = function overrideMimeType() {};
+    XMLHttpRequest.prototype.removeEventListener = function removeEventListener() {};
+
+    XMLHttpRequest.prototype.send = function send(data) {
+        this.body = data;
+		if(this.requestData.asynchronous===false)
+		{
+			throw ("Synchronous XMLHtppRequest calls are not allowed.  Please change your request to be asynchronous");
+			return;
+		}
+        XMLHttpRequest.Extension.sendXMLHTTP(this);
+    };
+
+    XMLHttpRequest.prototype.setRequestHeader = function setRequestHeader(header, value) {
+        this.headers[header] = value;
+    };
+
+
+    function XMLHttpRequest() {
+        XMLHttpRequest.Extension.addObject(this);
+        this.onabort = null;
+        this.onerror = undefined;
+        this.onload = undefined;
+        this.onloadstart = undefined;
+        this.onprogress = null;
+        this.onreadystatechange = null;
+        this.readyState = 0;
+        this.response = "";
+        this.responseText = "";
+        this.responseType = "";
+        this.responseXML = null;
+        this.status = 0;
+        this.statusText = "";
+        this.withCredentials = false;
+        this.requestData = {
+            'method': null,
+            'URL': null,
+            'asynchronous': null,
+            'username': null,
+            'password': null,
+            'headers': null
+        };
+    }
+    window.nativeXMLHttpRequest=window.XMLHttpRequest;
+    window.XMLHttpRequest = XMLHttpRequest;
+})();
